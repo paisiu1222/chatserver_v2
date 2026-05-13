@@ -90,6 +90,18 @@ void Redis::delUserState(int userid)
     if (reply) freeReplyObject(reply);
 }
 
+// 消息去重，使用 SETNX + EXPIRE，返回 true 表示首次设置
+bool Redis::setnxWithExpire(const string &key, int expireSeconds)
+{
+    lock_guard<mutex> lock(_ctxMutex);
+    redisReply *reply = (redisReply *)redisCommand(_publish_context,
+        "SET %s 1 NX EX %d", key.c_str(), expireSeconds);
+    if (reply == nullptr) return false;
+    bool isNew = (reply->type == REDIS_REPLY_STATUS && string(reply->str) == "OK");
+    freeReplyObject(reply);
+    return isNew;
+}
+
 // 向redis指定的通道subscribe订阅消息
 bool Redis::subscribe(int channel)
 {

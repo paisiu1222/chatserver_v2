@@ -28,6 +28,7 @@ ChatService::ChatService()
     _msgHandlerMap.insert({CREATE_GROUP_MSG, std::bind(&ChatService::createGroup, this, _1, _2, _3)});
     _msgHandlerMap.insert({ADD_GROUP_MSG, std::bind(&ChatService::addGroup, this, _1, _2, _3)});
     _msgHandlerMap.insert({GROUP_CHAT_MSG, std::bind(&ChatService::groupChat, this, _1, _2, _3)});
+    _msgHandlerMap.insert({PING_MSG, std::bind(&ChatService::ping, this, _1, _2, _3)});
 
     // 连接redis服务器
     if (_redis.connect())
@@ -97,6 +98,7 @@ void ChatService::login(const TcpConnectionPtr &conn, json &js, Timestamp time)
             {
                 unique_lock<shared_mutex> lock(_connMutex);
                 _userConnMap.insert({id, conn});
+                _lastActiveMap[id] = time;
             }
 
             // id用户登录成功后，向redis订阅channel(id)
@@ -281,6 +283,26 @@ void ChatService::oneChat(const TcpConnectionPtr &conn, json &js, Timestamp time
 
     if (toid <= 0 || !isValidMessage(msg)) return;
 
+    // 消息去重检查（基于 msg_uuid）
+    string msgUuid = js.value("msg_uuid", "");
+    if (!msgUuid.empty() && !_redis.setnxWithExpire("msg:" + msgUuid))
+    {
+        // 重复消息，仅回复 ACK
+        json ack;
+        ack["msgid"] = MSG_ACK;
+        ack["msg_uuid"] = msgUuid;
+        ack["status"] = "duplicate";
+        conn->send(ack.dump());
+        return;
+    }
+
+    // 更新发送者活跃时间
+    int fromid = js["id"].get<int>();
+    {
+        unique_lock<shared_mutex> lock(_connMutex);
+        _lastActiveMap[fromid] = time;
+    }
+
     {
         shared_lock<shared_mutex> lock(_connMutex);
         auto it = _userConnMap.find(toid);
@@ -288,6 +310,12 @@ void ChatService::oneChat(const TcpConnectionPtr &conn, json &js, Timestamp time
         {
             // toid在线，转发消息   服务器主动推送消息给toid用户
             it->second->send(js.dump());
+            // 回复 ACK
+            json ack;
+            ack["msgid"] = MSG_ACK;
+            ack["msg_uuid"] = msgUuid;
+            ack["status"] = "ok";
+            conn->send(ack.dump());
             return;
         }
     }
@@ -304,11 +332,22 @@ void ChatService::oneChat(const TcpConnectionPtr &conn, json &js, Timestamp time
     if (toState == "online")
     {
         _redis.publish(toid, js.dump());
+        json ack;
+        ack["msgid"] = MSG_ACK;
+        ack["msg_uuid"] = msgUuid;
+        ack["status"] = "ok";
+        conn->send(ack.dump());
         return;
     }
 
     // toid不在线，存储离线消息
     _offlineMsgModel.insert(toid, js.dump());
+    // 回复 ACK（离线存储成功）
+    json ack;
+    ack["msgid"] = MSG_ACK;
+    ack["msg_uuid"] = msgUuid;
+    ack["status"] = "offline";
+    conn->send(ack.dump());
 }
 
 // 添加好友业务 msgid id friendid
@@ -357,6 +396,24 @@ void ChatService::groupChat(const TcpConnectionPtr &conn, json &js, Timestamp ti
     int groupid = js["groupid"].get<int>();
     string msg = js.value("msg", "");
     if (groupid <= 0 || !isValidMessage(msg)) return;
+
+    // 消息去重检查
+    string msgUuid = js.value("msg_uuid", "");
+    if (!msgUuid.empty() && !_redis.setnxWithExpire("msg:" + msgUuid))
+    {
+        json ack;
+        ack["msgid"] = MSG_ACK;
+        ack["msg_uuid"] = msgUuid;
+        ack["status"] = "duplicate";
+        conn->send(ack.dump());
+        return;
+    }
+
+    // 更新发送者活跃时间
+    {
+        unique_lock<shared_mutex> lock(_connMutex);
+        _lastActiveMap[userid] = time;
+    }
     vector<int> useridVec = _groupModel.queryGroupUsers(userid, groupid);
 
     shared_lock<shared_mutex> lock(_connMutex);
@@ -389,6 +446,13 @@ void ChatService::groupChat(const TcpConnectionPtr &conn, json &js, Timestamp ti
             }
         }
     }
+
+    // 回复群聊 ACK
+    json ack;
+    ack["msgid"] = MSG_ACK;
+    ack["msg_uuid"] = msgUuid;
+    ack["status"] = "ok";
+    conn->send(ack.dump());
 }
 
 // 从redis消息队列中获取订阅的消息
@@ -404,4 +468,60 @@ void ChatService::handleRedisSubscribeMessage(int userid, string msg)
 
     // 存储该用户的离线消息
     _offlineMsgModel.insert(userid, msg);
+}
+
+// 处理心跳请求
+void ChatService::ping(const TcpConnectionPtr &conn, json &js, Timestamp time)
+{
+    int userid = js["id"].get<int>();
+    {
+        unique_lock<shared_mutex> lock(_connMutex);
+        _lastActiveMap[userid] = time;
+    }
+    // 回复 PONG
+    json response;
+    response["msgid"] = PONG_MSG;
+    conn->send(response.dump());
+}
+
+// 定时检查空闲连接（超过 90 秒无活动则断开）
+void ChatService::checkIdleConnections()
+{
+    Timestamp now = Timestamp::now();
+    vector<int> staleUsers;
+
+    {
+        unique_lock<shared_mutex> lock(_connMutex);
+        for (auto it = _lastActiveMap.begin(); it != _lastActiveMap.end();)
+        {
+            if (timeDifference(now, it->second) > 90.0)
+            {
+                staleUsers.push_back(it->first);
+                it = _lastActiveMap.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
+    for (int userid : staleUsers)
+    {
+        // 清理连接并更新状态
+        {
+            unique_lock<shared_mutex> lock(_connMutex);
+            auto it = _userConnMap.find(userid);
+            if (it != _userConnMap.end())
+            {
+                it->second->shutdown();
+                _userConnMap.erase(it);
+            }
+        }
+        _redis.unsubscribe(userid);
+        _redis.delUserState(userid);
+        User user(userid, "", "", "offline");
+        _userModel.updateState(user);
+        LOG_INFO << "heartbeat timeout, user " << userid << " disconnected";
+    }
 }

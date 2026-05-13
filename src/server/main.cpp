@@ -30,6 +30,12 @@ int main(int argc, char **argv)
     ChatServer server(&loop, addr, "ChatServer");
 
     server.start();
+
+    // 每 30 秒检查一次空闲连接（超过 90 秒无活动则断开）
+    loop.runEvery(30.0, []() {
+        ChatService::instance()->checkIdleConnections();
+    });
+
     loop.loop();
 
     return 0;

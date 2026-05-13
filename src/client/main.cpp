@@ -326,6 +326,18 @@ void readTaskHandler(int clientfd)
             sem_post(&rwsem);    // 通知主线程，注册结果处理完成
             continue;
         }
+
+        if (PONG_MSG == msgtype)
+        {
+            // 心跳响应，静默处理
+            continue;
+        }
+
+        if (MSG_ACK == msgtype)
+        {
+            // 消息 ACK，调试时可打印
+            continue;
+        }
     }
 }
 
@@ -471,6 +483,7 @@ void chat(int clientfd, string str)
     js["toid"] = friendid;
     js["msg"] = message;
     js["time"] = getCurrentTime();
+    js["msg_uuid"] = to_string(g_currentUser.getId()) + "_" + to_string(time(nullptr));
     string buffer = js.dump();
 
     int len = send(clientfd, buffer.c_str(), strlen(buffer.c_str()) + 1, 0);
@@ -541,6 +554,7 @@ void groupchat(int clientfd, string str)
     js["groupid"] = groupid;
     js["msg"] = message;
     js["time"] = getCurrentTime();
+    js["msg_uuid"] = to_string(g_currentUser.getId()) + "_" + to_string(time(nullptr));
     string buffer = js.dump();
 
     int len = send(clientfd, buffer.c_str(), strlen(buffer.c_str()) + 1, 0);

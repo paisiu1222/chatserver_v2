@@ -42,8 +42,12 @@ public:
     void groupChat(const TcpConnectionPtr &conn, json &js, Timestamp time);
     // 处理注销业务
     void loginout(const TcpConnectionPtr &conn, json &js, Timestamp time);
+    // 处理心跳请求
+    void ping(const TcpConnectionPtr &conn, json &js, Timestamp time);
     // 处理客户端异常退出
     void clientCloseException(const TcpConnectionPtr &conn);
+    // 定时检查空闲连接并清理
+    void checkIdleConnections();
     // 服务器异常，业务重置方法
     void reset();
     // 获取消息对应的处理器
@@ -58,6 +62,8 @@ private:
     unordered_map<int, MsgHandler> _msgHandlerMap;
     // 存储在线用户的通信连接
     unordered_map<int, TcpConnectionPtr> _userConnMap;
+    // 存储用户最后活跃时间
+    unordered_map<int, Timestamp> _lastActiveMap;
     // 定义读写锁，保证_userConnMap的线程安全（读多写少场景优化）
     shared_mutex _connMutex;
 

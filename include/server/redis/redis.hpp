@@ -40,6 +40,9 @@ public:
     string getUserState(int userid);
     void delUserState(int userid);
 
+    // 消息去重（SETNX），返回 true 表示首次设置成功（非重复）
+    bool setnxWithExpire(const string &key, int expireSeconds = 3600);
+
 private:
     // hiredis同步上下文对象，负责publish消息和 key-value 操作
     redisContext *_publish_context;

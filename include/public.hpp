@@ -20,6 +20,9 @@ enum EnMsgType
     CREATE_GROUP_MSG, // 创建群组
     ADD_GROUP_MSG, // 加入群组
     GROUP_CHAT_MSG, // 群聊天
+    PING_MSG, // 心跳请求
+    PONG_MSG, // 心跳响应
+    MSG_ACK, // 消息确认
 };
 
 // 输入校验常量
