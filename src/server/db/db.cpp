@@ -1,12 +1,8 @@
 #include "db.h"
 #include "connectionpool.hpp"
+#include "config.hpp"
 #include <muduo/base/Logging.h>
 
-// 数据库配置信息
-static string server = "127.0.0.1";
-static string user = "root";
-static string password = "123456";
-static string dbname = "chat";
 static bool poolInitialized = false;
 
 // 初始化数据库连接
@@ -24,7 +20,11 @@ bool MySQL::connect()
 {
     if (!poolInitialized)
     {
-        ConnectionPool::instance()->init(server, 3306, user, password, dbname, 8);
+        auto *cfg = Config::instance();
+        ConnectionPool::instance()->init(
+            cfg->mysqlHost(), cfg->mysqlPort(),
+            cfg->mysqlUser(), cfg->mysqlPassword(),
+            cfg->mysqlDatabase(), cfg->mysqlPoolSize());
         poolInitialized = true;
     }
 

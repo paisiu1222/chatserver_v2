@@ -1,4 +1,5 @@
 #include "redis.hpp"
+#include "config.hpp"
 #include <iostream>
 #include <mutex>
 using namespace std;
@@ -23,8 +24,12 @@ Redis::~Redis()
 
 bool Redis::connect()
 {
+    auto *cfg = Config::instance();
+    string host = cfg->redisHost();
+    int port = cfg->redisPort();
+
     // 负责publish发布消息的上下文连接
-    _publish_context = redisConnect("127.0.0.1", 6379);
+    _publish_context = redisConnect(host.c_str(), port);
     if (nullptr == _publish_context)
     {
         cerr << "connect redis failed!" << endl;
@@ -32,7 +37,7 @@ bool Redis::connect()
     }
 
     // 负责subscribe订阅消息的上下文连接
-    _subcribe_context = redisConnect("127.0.0.1", 6379);
+    _subcribe_context = redisConnect(host.c_str(), port);
     if (nullptr == _subcribe_context)
     {
         cerr << "connect redis failed!" << endl;
