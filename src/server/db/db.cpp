@@ -65,6 +65,17 @@ MYSQL_RES *MySQL::query(string sql)
     return mysql_use_result(_conn);
 }
 
+// 转义字符串，防止 SQL 注入
+string MySQL::escape(const string &str)
+{
+    if (_conn == nullptr) return "";
+    char *buf = new char[str.length() * 2 + 1];
+    mysql_real_escape_string(_conn, buf, str.c_str(), str.length());
+    string result(buf);
+    delete[] buf;
+    return result;
+}
+
 // 获取连接
 MYSQL* MySQL::getConnection()
 {

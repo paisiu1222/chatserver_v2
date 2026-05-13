@@ -21,6 +21,9 @@ public:
     MYSQL_RES *query(string sql);
     // 获取连接
     MYSQL* getConnection();
+    // 转义字符串，防止 SQL 注入
+    string escape(const string &str);
+
 private:
     MYSQL *_conn;
 };

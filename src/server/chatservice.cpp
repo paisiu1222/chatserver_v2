@@ -1,5 +1,6 @@
 #include "chatservice.hpp"
 #include "public.hpp"
+#include "password_utils.hpp"
 #include <muduo/base/Logging.h>
 #include <vector>
 using namespace std;
@@ -66,8 +67,19 @@ void ChatService::login(const TcpConnectionPtr &conn, json &js, Timestamp time)
     int id = js["id"].get<int>();
     string pwd = js["password"];
 
+    // 输入校验
+    if (id <= 0 || !isValidPassword(pwd))
+    {
+        json response;
+        response["msgid"] = LOGIN_MSG_ACK;
+        response["errno"] = 1;
+        response["errmsg"] = "invalid id or password format!";
+        conn->send(response.dump());
+        return;
+    }
+
     User user = _userModel.query(id);
-    if (user.getId() == id && user.getPwd() == pwd)
+    if (user.getId() == id && verifyPassword(pwd, user.getPwd()))
     {
         if (user.getState() == "online")
         {
@@ -172,6 +184,17 @@ void ChatService::reg(const TcpConnectionPtr &conn, json &js, Timestamp time)
     string name = js["name"];
     string pwd = js["password"];
 
+    // 输入校验
+    if (!isValidName(name) || !isValidPassword(pwd))
+    {
+        json response;
+        response["msgid"] = REG_MSG_ACK;
+        response["errno"] = 1;
+        response["errmsg"] = "invalid name or password format! name: 2-20 chars, password: 6-100 chars";
+        conn->send(response.dump());
+        return;
+    }
+
     User user;
     user.setName(name);
     user.setPwd(pwd);
@@ -250,6 +273,9 @@ void ChatService::clientCloseException(const TcpConnectionPtr &conn)
 void ChatService::oneChat(const TcpConnectionPtr &conn, json &js, Timestamp time)
 {
     int toid = js["toid"].get<int>();
+    string msg = js.value("msg", "");
+
+    if (toid <= 0 || !isValidMessage(msg)) return;
 
     {
         lock_guard<mutex> lock(_connMutex);
@@ -280,6 +306,8 @@ void ChatService::addFriend(const TcpConnectionPtr &conn, json &js, Timestamp ti
     int userid = js["id"].get<int>();
     int friendid = js["friendid"].get<int>();
 
+    if (friendid <= 0) return;
+
     // 存储好友信息
     _friendModel.insert(userid, friendid);
 }
@@ -290,6 +318,8 @@ void ChatService::createGroup(const TcpConnectionPtr &conn, json &js, Timestamp 
     int userid = js["id"].get<int>();
     string name = js["groupname"];
     string desc = js["groupdesc"];
+
+    if (!isValidGroupName(name) || !isValidGroupDesc(desc)) return;
 
     // 存储新创建的群组信息
     Group group(-1, name, desc);
@@ -305,6 +335,7 @@ void ChatService::addGroup(const TcpConnectionPtr &conn, json &js, Timestamp tim
 {
     int userid = js["id"].get<int>();
     int groupid = js["groupid"].get<int>();
+    if (groupid <= 0) return;
     _groupModel.addGroup(userid, groupid, "normal");
 }
 
@@ -313,6 +344,8 @@ void ChatService::groupChat(const TcpConnectionPtr &conn, json &js, Timestamp ti
 {
     int userid = js["id"].get<int>();
     int groupid = js["groupid"].get<int>();
+    string msg = js.value("msg", "");
+    if (groupid <= 0 || !isValidMessage(msg)) return;
     vector<int> useridVec = _groupModel.queryGroupUsers(userid, groupid);
 
     lock_guard<mutex> lock(_connMutex);
