@@ -1,5 +1,6 @@
 #include "redis.hpp"
 #include <iostream>
+#include <mutex>
 using namespace std;
 
 Redis::Redis()
@@ -52,6 +53,7 @@ bool Redis::connect()
 // 向redis指定的通道channel发布消息
 bool Redis::publish(int channel, string message)
 {
+    lock_guard<mutex> lock(_ctxMutex);
     redisReply *reply = (redisReply *)redisCommand(_publish_context, "PUBLISH %d %s", channel, message.c_str());
     if (nullptr == reply)
     {
@@ -60,6 +62,32 @@ bool Redis::publish(int channel, string message)
     }
     freeReplyObject(reply);
     return true;
+}
+
+// 缓存用户在线状态
+void Redis::setUserState(int userid, const string &state)
+{
+    lock_guard<mutex> lock(_ctxMutex);
+    redisReply *reply = (redisReply *)redisCommand(_publish_context, "SET user:%d:state %s", userid, state.c_str());
+    if (reply) freeReplyObject(reply);
+}
+
+string Redis::getUserState(int userid)
+{
+    lock_guard<mutex> lock(_ctxMutex);
+    redisReply *reply = (redisReply *)redisCommand(_publish_context, "GET user:%d:state", userid);
+    string state;
+    if (reply && reply->type == REDIS_REPLY_STRING && reply->str)
+        state = reply->str;
+    if (reply) freeReplyObject(reply);
+    return state;
+}
+
+void Redis::delUserState(int userid)
+{
+    lock_guard<mutex> lock(_ctxMutex);
+    redisReply *reply = (redisReply *)redisCommand(_publish_context, "DEL user:%d:state", userid);
+    if (reply) freeReplyObject(reply);
 }
 
 // 向redis指定的通道subscribe订阅消息

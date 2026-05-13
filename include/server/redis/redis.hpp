@@ -3,6 +3,7 @@
 
 #include <hiredis/hiredis.h>
 #include <thread>
+#include <mutex>
 #include <functional>
 using namespace std;
 
@@ -16,7 +17,7 @@ public:
     Redis();
     ~Redis();
 
-    // 连接redis服务器 
+    // 连接redis服务器
     bool connect();
 
     // 向redis指定的通道channel发布消息
@@ -34,8 +35,13 @@ public:
     // 初始化向业务层上报通道消息的回调对象
     void init_notify_handler(function<void(int, string)> fn);
 
+    // 用户在线状态缓存（key-value 操作）
+    void setUserState(int userid, const string &state);
+    string getUserState(int userid);
+    void delUserState(int userid);
+
 private:
-    // hiredis同步上下文对象，负责publish消息
+    // hiredis同步上下文对象，负责publish消息和 key-value 操作
     redisContext *_publish_context;
 
     // hiredis同步上下文对象，负责subscribe消息
@@ -43,6 +49,9 @@ private:
 
     // 回调操作，收到订阅的消息，给service层上报
     function<void(int, string)> _notify_message_handler;
+
+    // 保护 publish_context 的线程安全
+    std::mutex _ctxMutex;
 };
 
 #endif
