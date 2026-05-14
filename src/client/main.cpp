@@ -58,7 +58,14 @@ int main(int argc, char **argv)
 
     // 解析通过命令行参数传递的ip和port
     char *ip = argv[1];
-    uint16_t port = atoi(argv[2]);
+    int port = atoi(argv[2]);
+
+    // 端口校验
+    if (port <= 0 || port > 65535)
+    {
+        cerr << "invalid port: " << argv[2] << " (must be 1-65535)" << endl;
+        exit(-1);
+    }
 
     // 创建client端的socket
     int clientfd = socket(AF_INET, SOCK_STREAM, 0);
