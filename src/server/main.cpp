@@ -1,7 +1,5 @@
 #include "chatserver.hpp"
 #include "chatservice.hpp"
-#include "config.hpp"
-#include <muduo/base/Logging.h>
 #include <iostream>
 #include <signal.h>
 using namespace std;
@@ -15,13 +13,21 @@ void resetHandler(int)
 
 int main(int argc, char **argv)
 {
-    // 加载配置文件
-    string configFile = (argc >= 2) ? argv[1] : "config/server.conf";
-    Config::instance()->load(configFile);
+    if (argc < 3)
+    {
+        cerr << "command invalid! example: ./ChatServer 127.0.0.1 6000" << endl;
+        exit(-1);
+    }
 
-    auto *cfg = Config::instance();
-    string ip = cfg->serverIp();
-    uint16_t port = cfg->serverPort();
+    char *ip = argv[1];
+    int port = atoi(argv[2]);
+
+    // 端口校验
+    if (port <= 0 || port > 65535)
+    {
+        cerr << "invalid port: " << argv[2] << " (must be 1-65535)" << endl;
+        exit(-1);
+    }
 
     signal(SIGINT, resetHandler);
 
@@ -36,7 +42,6 @@ int main(int argc, char **argv)
         ChatService::instance()->checkIdleConnections();
     });
 
-    LOG_INFO << "ChatServer started on " << ip << ":" << port;
     loop.loop();
 
     return 0;

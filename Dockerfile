@@ -27,4 +27,4 @@ RUN mkdir -p build && cd build && \
     cmake .. && make -j4
 
 EXPOSE 6000
-CMD ["./bin/ChatServer", "config/server.conf"]
+CMD ["./bin/ChatServer", "0.0.0.0", "6000"]

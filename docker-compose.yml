@@ -32,28 +32,24 @@ services:
   chatserver1:
     build: .
     container_name: chat_server1
+    network_mode: host
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      - "6001:6000"
-    volumes:
-      - ./config/server_docker.conf:/app/config/server.conf
+    command: ./bin/ChatServer 0.0.0.0 6001
 
   chatserver2:
     build: .
     container_name: chat_server2
+    network_mode: host
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      - "6002:6000"
-    volumes:
-      - ./config/server_docker.conf:/app/config/server.conf
+    command: ./bin/ChatServer 0.0.0.0 6002
 
   nginx:
     image: nginx:alpine
