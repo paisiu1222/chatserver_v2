@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>集群聊天服务器 - 完整流程图</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'PingFang SC','Microsoft YaHei',monospace;background:#0d1117;color:#c9d1d9;min-height:100vh;overflow-x:hidden}
+.top-bar{
+  background:linear-gradient(135deg,#1a2332,#0d1a25);padding:16px 28px;
+  border-bottom:1px solid #21262d;display:flex;justify-content:space-between;align-items:center;
+  position:sticky;top:0;z-index:100;
+}
+.top-bar h1{font-size:18px;color:#58a6ff}
+.top-bar .badge{font-size:11px;color:#8b949e}
+.flow-panel{
+  margin:20px auto;max-width:1500px;padding:0 20px;
+}
+/* 层节点 */
+.layer{position:relative;margin:16px 0}
+.layer-label{
+  font-size:11px;color:#8b949e;letter-spacing:2px;padding:4px 0;
+  border-bottom:1px solid #21262d;margin-bottom:10px;
+}
+.node-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;align-items:stretch}
+.node{
+  background:#161b22;border:2px solid #30363d;border-radius:8px;
+  padding:14px 18px;min-width:140px;max-width:320px;
+  transition:all .3s;position:relative;
+}
+.node:hover{border-color:#58a6ff}
+.node.entry{border-color:#3fb950}
+.node.logic{border-color:#d2991d}
+.node.storage{border-color:#f78166}
+.node.redis{border-color:#db6d8e}
+.node.client{border-color:#79c0ff}
+.node-title{font-size:13px;font-weight:bold;color:#58a6ff;margin-bottom:6px}
+.node-title.c-red{color:#f85149}
+.node-title.c-green{color:#3fb950}
+.node-title.c-yellow{color:#d2991d}
+.node-title.c-pink{color:#db6d8e}
+.node-detail{font-size:11px;color:#8b949e;line-height:1.7}
+.node-detail .val{color:#a5d6ff}
+.node-detail .fn{color:#d2a8ff}
+.node-detail .tp{color:#ffa657}
+.node-detail .cmt{color:#6e7681}
+.node-detail .sk{color:#7ee787}
+
+/* 箭头 */
+.connector{
+  display:flex;align-items:center;justify-content:center;padding:4px 0;gap:8px;
+}
+.arrow{color:#ffa657;font-size:18px;font-weight:bold}
+.arrow-label{
+  background:#1c2128;border:1px solid #30363d;border-radius:4px;
+  padding:2px 10px;font-size:10px;color:#ffa657;max-width:600px;
+  text-align:center;line-height:1.4;
+}
+.arrow-label.param{color:#7ee787;border-color:#238636}
+.arrow-label.big{font-size:12px;padding:6px 14px}
+
+/* 数据包 */
+.packet{
+  background:#0d1117;border:1px dashed #30363d;border-radius:6px;padding:8px 14px;
+  font-size:11px;color:#a5d6ff;font-family:monospace;line-height:1.6;margin:8px 0;
+  white-space:pre-wrap;max-width:600px;
+}
+.packet .k{color:#ffa657}
+.packet .s{color:#a5d6ff}
+.packet .n{color:#79c0ff}
+
+/* 分支 */
+.split-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:8px 0}
+.branch{
+  border:1px solid;border-radius:8px;padding:12px 16px;min-width:200px;max-width:320px;
+  background:#161b22;font-size:11px;line-height:1.6;
+}
+.branch.green{border-color:#238636}
+.branch.orange{border-color:#d2991d}
+.branch.red{border-color:#da3633}
+.branch .br-title{font-weight:bold;margin-bottom:4px;font-size:12px}
+.branch.green .br-title{color:#3fb950}
+.branch.orange .br-title{color:#d2991d}
+.branch.red .br-title{color:#f85149}
+
+/* 图例 */
+.legend{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;padding:16px;font-size:11px;color:#8b949e}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend .dot{width:10px;height:10px;border-radius:2px}
+
+/* 标号 */
+.badge-seq{
+  position:absolute;top:-10px;left:-6px;width:20px;height:20px;
+  border-radius:50%;background:#1f6feb;color:#fff;font-size:10px;
+  display:flex;align-items:center;justify-content:center;font-weight:bold;
+}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div>
+    <h1>集群聊天服务器 — 完整数据流 & 参数传递图</h1>
+  </div>
+  <div class="badge">单击节点可高亮对应代码文件</div>
+</div>
+
+<div class="legend">
+  <span><span class="dot" style="background:#3fb950"></span> 入口/网络层</span>
+  <span><span class="dot" style="background:#d2991d"></span> 业务逻辑层</span>
+  <span><span class="dot" style="background:#f78166"></span> 数据库层</span>
+  <span><span class="dot" style="background:#db6d8e"></span> Redis层</span>
+  <span><span class="dot" style="background:#79c0ff"></span> 客户端</span>
+  <span style="margin-left:20px">━━ 连线标签 = 传递的参数</span>
+</div>
+
+<div class="flow-panel">
+
+<!-- ==================== 第0层：客户端 ==================== -->
+<div class="layer">
+<div class="layer-label">▼ 客户端 — src/client/main.cpp</div>
+<div class="node-row">
+  <div class="node client" onclick="showCode('client_main')">
+    <div class="node-title c-green">main() 主线程 (发送)</div>
+    <div class="node-detail">
+      <span class="cmt">// 创建 socket, 连接服务器</span>
+      <span class="fn">socket</span>(<span class="tp">AF_INET, SOCK_STREAM, 0</span>) → <span class="val">clientfd</span>
+      <span class="fn">connect</span>(<span class="val">clientfd</span>, 127.0.0.1:6000)
+      <span class="fn">sem_init</span>(&<span class="val">rwsem</span>, 0, <span class="n">0</span>)
+      ──────────────────────────────
+      <span class="cmt">// 用户输入 → 构造 JSON → send</span>
+      <span class="sk">choice</span> → <span class="sk">switch</span>:
+        <span class="n">1</span> (登录) → case LOGIN
+        <span class="n">2</span> (注册) → case REG
+        <span class="n">3</span> (退出) → quit
+    </div>
+  </div>
+
+  <div class="arrow big">→</div>
+
+  <div class="node client" onclick="showCode('client_json')">
+    <div class="node-title c-green">构造 JSON 数据包</div>
+    <div class="node-detail">
+      <span class="cmt">// 每个命令构造一个 JSON</span>
+      <span class="fn">json</span> <span class="val">js</span>;
+      <span class="val">js</span>[<span class="s">"msgid"</span>]   = <span class="sk">LOGIN_MSG</span>;  <span class="cmt">// 1~13</span>
+      <span class="val">js</span>[<span class="s">"id"</span>]      = <span class="val">g_currentUser.getId()</span>;
+      <span class="val">js</span>[<span class="s">"password"</span>]= <span class="val">pwd</span>;
+      <span class="val">js</span>[<span class="s">"msg_uuid"</span>] = <span class="val">id + "_" + time()</span>;
+      ──────────────────────────────
+      <span class="tp">string</span> <span class="val">request</span> = <span class="val">js</span>.<span class="fn">dump</span>();
+      <span class="fn">send</span>(<span class="val">clientfd</span>, <span class="val">request</span>, <span class="val">len</span>, <span class="n">0</span>);
+      <span class="fn">sem_wait</span>(&<span class="val">rwsem</span>);  <span class="cmt">// 阻塞等响应</span>
+    </div>
+  </div>
+
+  <div class="arrow big">←</div>
+
+  <div class="node client" onclick="showCode('client_read')">
+    <div class="node-title c-green">readTaskHandler 子线程 (接收)</div>
+    <div class="node-detail">
+      <span class="cmt">// 死循环阻塞 recv</span>
+      <span class="fn">recv</span>(<span class="val">clientfd</span>, <span class="val">buffer</span>, <span class="n">1024</span>, <span class="n">0</span>)
+      <span class="fn">json::parse</span>(<span class="val">buffer</span>) → <span class="val">js</span>
+      <span class="tp">int</span> <span class="val">msgtype</span> = <span class="val">js</span>[<span class="s">"msgid"</span>];
+      ──────────────────────────────
+      <span class="sk">switch</span>(<span class="val">msgtype</span>):
+        <span class="n">6</span> → 打印聊天消息
+        <span class="n">2</span> → 处理登录响应 + <span class="fn">sem_post</span>
+        <span class="n">5</span> → 处理注册响应 + <span class="fn">sem_post</span>
+        <span class="n">12</span>→ 心跳→静默
+        <span class="n">13</span>→ ACK→静默
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ==================== 网络传输 ==================== -->
+<div class="connector">
+  <div class="arrow-label big param">
+    ─── TCP 传输 (JSON 字符串) ───
+    <br>send(clientfd, json_str, len, 0) → 内核 TCP 协议栈 → 网卡 → 网络 → 对端网卡 → 内核 → Muduo epoll
+  </div>
+</div>
+
+<!-- ==================== 第1层：网络层 ==================== -->
+<div class="layer">
+<div class="layer-label">▼ 服务端网络层 — src/server/chatserver.cpp + include/server/chatserver.hpp</div>
+<div class="node-row">
+  <div class="node entry" onclick="showCode('server_init')">
+    <div class="badge-seq" style="top:auto;bottom:-10px;left:-6px">1</div>
+    <div class="node-title c-green">ChatServer 构造函数</div>
+    <div class="node-detail">
+      <span class="cmt">// 绑定回调，设置线程</span>
+      <span class="fn">_server</span>(<span class="val">loop, addr, "ChatServer"</span>)
+      <span class="fn">_server</span>.<span class="fn">setConnectionCallback</span>(
+        <span class="fn">bind</span>(&<span class="sk">onConnection</span>, <span class="sk">this</span>, <span class="val">_1</span>))
+      <span class="fn">_server</span>.<span class="fn">setMessageCallback</span>(
+        <span class="fn">bind</span>(&<span class="sk">onMessage</span>, <span class="sk">this</span>, <span class="val">_1,_2,_3</span>))
+      <span class="fn">_server</span>.<span class="fn">setThreadNum</span>(<span class="n">4</span>)
+    </div>
+  </div>
+
+  <div class="arrow big">→</div>
+
+  <div class="node entry" onclick="showCode('server_onmsg')">
+    <div class="badge-seq" style="top:auto;bottom:-10px;left:-6px">2</div>
+    <div class="node-title c-green">onMessage(conn, buffer, time)</div>
+    <div class="node-detail">
+      <span class="cmt">// Muduo 传入 3 个参数:</span>
+      <span class="tp">① TcpConnectionPtr</span> <span class="val">conn</span>   <span class="cmt">← 发送者的连接</span>
+      <span class="tp">② Buffer*</span>            <span class="val">buffer</span>  <span class="cmt">← 收到的字节</span>
+      <span class="tp">③ Timestamp</span>          <span class="val">time</span>    <span class="cmt">← 时间戳</span>
+      ──────────────────────────────
+      <span class="val">buf</span> = <span class="val">buffer</span>→<span class="fn">retrieveAllAsString</span>()
+      <span class="val">js</span>  = <span class="fn">json::parse</span>(<span class="val">buf</span>)
+      <span class="val">msgid</span> = <span class="val">js</span>[<span class="s">"msgid"</span>].<span class="fn">get&lt;int&gt;</span>()
+      <span class="val">handler</span> = <span class="fn">ChatService::instance()</span>
+                    →<span class="fn">getHandler</span>(<span class="val">msgid</span>)
+      <span class="fn">handler</span>(<span class="val">conn</span>, <span class="val">js</span>, <span class="val">time</span>)  <span class="cmt">// 转发给业务层!</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ==================== onMessage 详细展开 ==================== -->
+<div class="connector">
+  <div class="arrow-label big param">
+    handler(conn, js, time) ← 三个参数原封不动从 Muduo → 网络层 → 业务层
+  </div>
+</div>
+
+<!-- ==================== 第2层：业务层 ==================== -->
+<div class="layer">
+<div class="layer-label">▼ 服务端业务层 — src/server/chatservice.cpp + include/server/chatservice.hpp</div>
+
+<div class="node-row" style="margin-bottom:16px">
+  <div class="node logic" style="min-width:360px;max-width:500px" onclick="showCode('msgmap')">
+    <div class="badge-seq" style="top:auto;bottom:-10px;left:-6px">3</div>
+    <div class="node-title c-yellow">_msgHandlerMap 消息分发表 (策略模式)</div>
+    <div class="node-detail">
+      <span class="cmt">// 构造函数注册 9 种消息 → 函数的映射</span>
+      <span class="n">1</span> <span class="sk">LOGIN_MSG</span>       → <span class="fn">login</span>(<span class="val">conn, js, time</span>)
+      <span class="n">3</span> <span class="sk">LOGINOUT_MSG</span>    → <span class="fn">loginout</span>(<span class="val">conn, js, time</span>)
+      <span class="n">4</span> <span class="sk">REG_MSG</span>         → <span class="fn">reg</span>(<span class="val">conn, js, time</span>)
+      <span class="n">6</span> <span class="sk">ONE_CHAT_MSG</span>    → <span class="fn">oneChat</span>(<span class="val">conn, js, time</span>)
+      <span class="n">7</span> <span class="sk">ADD_FRIEND_MSG</span>  → <span class="fn">addFriend</span>(<span class="val">conn, js, time</span>)
+      <span class="n">8</span> <span class="sk">CREATE_GROUP_MSG</span> → <span class="fn">createGroup</span>(<span class="val">conn, js, time</span>)
+      <span class="n">9</span> <span class="sk">ADD_GROUP_MSG</span>    → <span class="fn">addGroup</span>(<span class="val">conn, js, time</span>)
+      <span class="n">10</span><span class="sk">GROUP_CHAT_MSG</span>   → <span class="fn">groupChat</span>(<span class="val">conn, js, time</span>)
+      <span class="n">11</span><span class="sk">PING_MSG</span>         → <span class="fn">ping</span>(<span class="val">conn, js, time</span>)
+      ──────────────────────────────
+      <span class="tp">MsgHandler</span> = <span class="tp">function</span>&lt;<span class="tp">void</span>(<span class="val">conn, js, time</span>)&gt;
+      <span class="fn">bind</span>(&<span class="sk">ChatService::oneChat</span>, <span class="sk">this</span>, <span class="val">_1,_2,_3</span>)
+             ↑ 成员函数       ↑ 补this   ↑ 3个占位符等调用时填入
+    </div>
+  </div>
+
+  <div class="arrow big">→</div>
+
+  <div class="node logic" style="min-width:360px;max-width:500px" onclick="showCode('onechat')">
+    <div class="badge-seq" style="top:auto;bottom:-10px;left:-6px">4</div>
+    <div class="node-title c-yellow">oneChat(conn, js, time) 业务处理</div>
+    <div class="node-detail">
+      <span class="cmt">// 从 js 里提取业务字段</span>
+      <span class="tp">int</span> <span class="val">toid</span>   = <span class="val">js</span>[<span class="s">"toid"</span>];     <span class="cmt">// 目标用户ID</span>
+      <span class="tp">int</span> <span class="val">fromid</span> = <span class="val">js</span>[<span class="s">"id"</span>];       <span class="cmt">// 发送者ID</span>
+      <span class="tp">string</span> <span class="val">uuid</span> = <span class="val">js</span>[<span class="s">"msg_uuid"</span>]; <span class="cmt">// 去重key</span>
+      ──────────────────────────────
+      <span class="cmt">// 用 conn 回复发送者</span>
+      <span class="val">conn</span>→<span class="fn">send</span>(<span class="val">ack</span>.<span class="fn">dump</span>())    <span class="cmt">← conn 原路返回</span>
+      <span class="cmt">// 用 time 更新活跃时间</span>
+      <span class="val">_lastActiveMap</span>[<span class="val">fromid</span>] = <span class="val">time</span>
+      <span class="cmt">// 用 toid 查路由, 用 js 发消息</span>
+      → 见下方三级路由分支
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ==================== 三级路由分支 ==================== -->
+<div class="connector">
+  <div class="arrow-label big">oneChat() 内部三级路由 — 根据 toid 决定投递路径</div>
+</div>
+
+<div class="split-row">
+  <div class="branch green">
+    <div class="br-title">路径A: 本机在线</div>
+    <div style="color:#8b949e">
+      <span class="fn">shared_lock</span>(<span class="val">_connMutex</span>)
+      <span class="fn">_userConnMap</span>.<span class="fn">find</span>(<span class="val">toid</span>) → <span style="color:#3fb950">命中!</span>
+      ──────────────────────
+      <span class="val">it→second</span>→<span class="fn">send</span>(<span class="val">js.dump()</span>)  <span class="cmt">// 直接推送</span>
+      <span class="val">conn</span>→<span class="fn">send</span>(<span class="s">"ACK ok"</span>)        <span class="cmt">// 回复发送者</span>
+      ──────────────────────
+      <span class="cmt">参数流: toid→查map→TcpConnection→send(原js)</span>
+    </div>
+  </div>
+
+  <div class="branch orange">
+    <div class="br-title">路径B: 跨服务器在线</div>
+    <div style="color:#8b949e">
+      <span class="fn">_userConnMap</span>.<span class="fn">find</span>(<span class="val">toid</span>) → 未命中
+      <span class="fn">_redis</span>.<span class="fn">getUserState</span>(<span class="val">toid</span>) → <span style="color:#d2991d">"online"</span>
+      ──────────────────────
+      <span class="fn">_redis</span>.<span class="fn">publish</span>(<span class="val">toid</span>, <span class="val">js.dump()</span>)  <span class="cmt">// 发布到Redis</span>
+      <span class="val">conn</span>→<span class="fn">send</span>(<span class="s">"ACK ok"</span>)
+      ──────────────────────
+      <span class="cmt">参数流: toid→publish(channel, msg)→目标服务器observer线程</span>
+    </div>
+  </div>
+
+  <div class="branch red">
+    <div class="br-title">路径C: 离线存储</div>
+    <div style="color:#8b949e">
+      <span class="fn">_redis</span>.<span class="fn">getUserState</span>(<span class="val">toid</span>) → nil
+      <span class="fn">_userModel</span>.<span class="fn">query</span>(<span class="val">toid</span>) → state=<span style="color:#f85149">"offline"</span>
+      ──────────────────────
+      <span class="fn">_offlineMsgModel</span>.<span class="fn">insert</span>(<span class="val">toid</span>, <span class="val">js.dump()</span>)
+      <span class="val">conn</span>→<span class="fn">send</span>(<span class="s">"ACK offline"</span>)
+      ──────────────────────
+      <span class="cmt">参数流: toid+json→INSERT offlinemessage→等登录拉取</span>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 第3层：数据层 ==================== -->
+<div class="layer" style="margin-top:20px">
+<div class="layer-label">▼ 服务端数据层 — src/server/model/*.cpp + db/*.cpp</div>
+<div class="node-row">
+  <div class="node storage" onclick="showCode('db')">
+    <div class="node-title c-red">MySQL 封装 + 连接池</div>
+    <div class="node-detail">
+      <span class="cmt">// ConnectionPool 单例</span>
+      <span class="fn">init</span>(<span class="val">host,port,user,pwd,db,</span><span class="n">8</span>)  <span class="cmt">// 预建8连接</span>
+      <span class="fn">acquire</span>() → <span class="tp">MYSQL*</span>  <span class="cmt">// 阻塞获取</span>
+      <span class="fn">release</span>(<span class="tp">MYSQL*</span>)        <span class="cmt">// 归还</span>
+      ──────────────────────
+      <span class="cmt">// MySQL 类</span>
+      <span class="fn">connect</span>() → 从池获取连接
+      ~MySQL() → 归还连接<span class="cmt">// RAII</span>
+      <span class="fn">escape</span>(<span class="tp">string</span>) → 转义防注入
+      <span class="fn">update</span>(<span class="val">sql</span>) / <span class="fn">query</span>(<span class="val">sql</span>)
+    </div>
+  </div>
+
+  <div class="node storage" onclick="showCode('model')">
+    <div class="node-title c-red">Model 层 (简易 ORM)</div>
+    <div class="node-detail">
+      <span class="cmt">// 每个函数: 拼SQL→获取连接→执行→归还</span>
+      <span class="fn">UserModel::insert</span>(<span class="val">user</span>)
+        → <span class="fn">hashPassword</span>(<span class="val">pwd</span>) → <span class="fn">escape</span>(<span class="val">name</span>)
+        → <span class="fn">snprintf</span>(<span class="val">sql</span>, INSERT)
+        → <span class="fn">acquire</span>() → <span class="fn">mysql.update</span>()
+      ──────────────────────
+      <span class="fn">UserModel::query</span>(<span class="val">id</span>)
+      <span class="fn">FriendModel::insert/query</span>
+      <span class="fn">GroupModel::createGroup/addGroup/query</span>
+      <span class="fn">OfflineMsgModel::insert/remove/query</span>
+    </div>
+  </div>
+
+  <div class="node storage" onclick="showCode('password')">
+    <div class="node-title c-red">password_utils</div>
+    <div class="node-detail">
+      <span class="fn">hashPassword</span>(<span class="val">plaintext</span>)
+        <span class="fn">RAND_bytes</span>(<span class="val">salt</span>, <span class="n">16</span>)
+        <span class="fn">PKCS5_PBKDF2_HMAC</span>(
+          <span class="val">pwd</span>, <span class="val">salt</span>, <span class="n">100000</span>,
+          <span class="fn">EVP_sha256</span>(), <span class="n">32</span>, <span class="val">key</span>)
+        → <span class="val">"hex(salt):hex(key)"</span>  <span class="cmt">// 97字符</span>
+      ──────────────────────
+      <span class="fn">verifyPassword</span>(<span class="val">input, stored</span>)
+        <span class="fn">CRYPTO_memcmp</span>()  <span class="cmt">// 常量时间</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ==================== 第4层：Redis ==================== -->
+<div class="layer">
+<div class="layer-label">▼ Redis 层 (三种用途) — src/server/redis/redis.cpp</div>
+<div class="node-row">
+  <div class="node redis" onclick="showCode('redis_pub')">
+    <div class="node-title c-pink">① Pub/Sub 消息总线</div>
+    <div class="node-detail">
+      <span class="cmt">// 两个独立 redisContext</span>
+      <span class="val">_publish_context</span>   → <span class="fn">PUBLISH</span> <span class="val">channel msg</span>
+      <span class="val">_subcribe_context</span>  → <span class="fn">SUBSCRIBE</span> <span class="val">channel</span>
+      ──────────────────────
+      <span class="cmt">// 独立线程阻塞监听</span>
+      <span class="fn">observer_channel_message</span>():
+        <span class="fn">redisGetReply</span>(<span class="val">_subcribe</span>)
+        → <span class="val">_notify_handler</span>(<span class="val">userid</span>, <span class="val">msg</span>)
+      <span class="cmt">// 回调到业务层</span>
+      → <span class="fn">handleRedisSubscribeMessage</span>
+    </div>
+  </div>
+
+  <div class="node redis" onclick="showCode('redis_state')">
+    <div class="node-title c-pink">② K-V 状态缓存</div>
+    <div class="node-detail">
+      <span class="fn">setUserState</span>(<span class="val">userid</span>, <span class="s">"online"</span>)
+        → <span class="fn">SET</span> <span class="val">user:1:state</span> <span class="s">online</span>
+      ──────────────────────
+      <span class="fn">getUserState</span>(<span class="val">userid</span>)
+        → <span class="fn">GET</span> <span class="val">user:1:state</span> → <span class="s">"online"</span>|<span class="s">""</span>
+      ──────────────────────
+      <span class="fn">delUserState</span>(<span class="val">userid</span>) → <span class="fn">DEL</span>
+    </div>
+  </div>
+
+  <div class="node redis" onclick="showCode('redis_dedup')">
+    <div class="node-title c-pink">③ SETNX 消息去重</div>
+    <div class="node-detail">
+      <span class="fn">setnxWithExpire</span>(<span class="val">key</span>, <span class="n">3600</span>)
+        → <span class="fn">SET</span> <span class="val">msg:1_xxx</span> <span class="n">1</span> <span class="fn">NX EX</span> <span class="n">3600</span>
+      ──────────────────────
+      返回 <span class="sk">true</span>  → 首次, 处理消息
+      返回 <span class="sk">false</span> → 重复, 仅回 ACK
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ==================== 完整参数传递流水线 ==================== -->
+<div class="layer">
+<div class="layer-label">▼ 完整参数传递流水线 (chat:2:你好 为例)</div>
+
+<style>
+.pipeline{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;font-family:monospace;font-size:11px;line-height:2;overflow-x:auto;white-space:pre}
+.pipeline .stage{color:#58a6ff}
+.pipeline .param{color:#ffa657}
+.pipeline .val{color:#a5d6ff}
+.pipeline .fn{color:#d2a8ff}
+.pipeline .cmt{color:#6e7681}
+.pipeline .arrow{color:#3fb950}
+</style>
+
+<div class="pipeline">
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+<span class="cmt">阶段1: 客户端打包</span>
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+<span class="stage">[main.cpp:481]</span> 用户输入: <span class="val">chat:2:你好</span>
+  <span class="fn">chat</span>(<span class="param">clientfd</span>, <span class="param">"2:你好"</span>)
+    <span class="param">friendid</span> = <span class="fn">atoi</span>(<span class="val">"2"</span>) → <span class="val">2</span>
+    <span class="param">message</span>  = <span class="val">"你好"</span>
+
+<span class="cmt">  // 打包成 JSON</span>
+  <span class="param">js</span>[<span class="s">"msgid"</span>]   = <span class="val">6</span>           <span class="cmt">// ONE_CHAT_MSG</span>
+  <span class="param">js</span>[<span class="s">"id"</span>]      = <span class="val">1</span>           <span class="cmt">// 发送者ID → g_currentUser.getId()</span>
+  <span class="param">js</span>[<span class="s">"name"</span>]    = <span class="val">"测试用户"</span>  <span class="cmt">// 发送者名 → g_currentUser.getName()</span>
+  <span class="param">js</span>[<span class="s">"toid"</span>]    = <span class="val">2</span>           <span class="cmt">// 接收者ID → friendid</span>
+  <span class="param">js</span>[<span class="s">"msg"</span>]     = <span class="val">"你好"</span>      <span class="cmt">// 消息内容 → message</span>
+  <span class="param">js</span>[<span class="s">"time"</span>]    = <span class="val">"2026-05-13 16:30:00"</span>  <span class="cmt">// getCurrentTime()</span>
+  <span class="param">js</span>[<span class="s">"msg_uuid"</span>]= <span class="val">"1_1747123800"</span>   <span class="cmt">// id + "_" + time(nullptr)</span>
+
+  <span class="param">buffer</span> = <span class="param">js</span>.<span class="fn">dump</span>()   <span class="cmt">// JSON 对象 → 字符串</span>
+  <span class="fn">send</span>(<span class="param">clientfd</span>, <span class="param">buffer</span>, <span class="fn">strlen</span>(<span class="param">buffer</span>)+<span class="val">1</span>, <span class="val">0</span>)
+          ↑socket      ↑内容          ↑长度              ↑标志
+
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+<span class="cmt">阶段2: TCP 传输</span>
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+  <span class="param">buffer</span> ──<span class="fn">send</span>()──→ 内核发送缓冲 ──TCP──→ 对端内核接收缓冲 ──<span class="fn">epoll</span>──→ Muduo <span class="fn">handleRead</span>()
+
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+<span class="cmt">阶段3: Muduo 回调网络层</span>
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+<span class="stage">[chatserver.cpp:46]</span> Muduo 触发 <span class="fn">_messageCallback</span>(<span class="param">conn</span>, <span class="param">buffer</span>, <span class="param">time</span>)
+
+  <span class="fn">onMessage</span>(<span class="param">conn</span>, <span class="param">buffer</span>, <span class="param">time</span>)
+    <span class="param">conn</span>   ← Muduo 传入, 包含客户端 fd/IP/端口, 用于回复
+    <span class="param">buffer</span> ← Muduo 传入, 从 socket 读到的原始字节
+    <span class="param">time</span>   ← Muduo 传入, 数据到达时刻
+
+    <span class="param">buf</span> = <span class="param">buffer</span>→<span class="fn">retrieveAllAsString</span>()   <span class="cmt">// 取出字符串</span>
+    <span class="param">js</span>  = <span class="fn">json::parse</span>(<span class="param">buf</span>)                <span class="cmt">// 反序列化为 JSON</span>
+    <span class="param">msgid</span> = <span class="param">js</span>[<span class="s">"msgid"</span>].<span class="fn">get&lt;int&gt;</span>() → <span class="val">6</span>
+
+    <span class="param">handler</span> = <span class="fn">ChatService::instance()</span>→<span class="fn">getHandler</span>(<span class="param">msgid</span>)
+    <span class="cmt">// getHandler(6) → _msgHandlerMap[6] → bind(oneChat, this, _1,_2,_3)</span>
+
+    <span class="fn">handler</span>(<span class="param">conn</span>, <span class="param">js</span>, <span class="param">time</span>)   <span class="cmt">// 调用业务层!</span>
+
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+<span class="cmt">阶段4: 业务层处理</span>
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+<span class="stage">[chatservice.cpp:279]</span> <span class="fn">oneChat</span>(<span class="param">conn</span>, <span class="param">js</span>, <span class="param">time</span>)
+
+  <span class="cmt">// ① 从 js 提取字段</span>
+  <span class="param">toid</span>   = <span class="param">js</span>[<span class="s">"toid"</span>].<span class="fn">get&lt;int&gt;</span>()     → <span class="val">2</span>
+  <span class="param">fromid</span> = <span class="param">js</span>[<span class="s">"id"</span>].<span class="fn">get&lt;int&gt;</span>()       → <span class="val">1</span>
+  <span class="param">msg</span>    = <span class="param">js</span>.<span class="fn">value</span>(<span class="s">"msg"</span>, <span class="s">""</span>)       → <span class="val">"你好"</span>
+  <span class="param">uuid</span>   = <span class="param">js</span>.<span class="fn">value</span>(<span class="s">"msg_uuid"</span>, <span class="s">""</span>) → <span class="val">"1_1747123800"</span>
+
+  <span class="cmt">// ② 输入校验</span>
+  <span class="fn">isValidMessage</span>(<span class="param">msg</span>) ∧ <span class="param">toid</span> > <span class="val">0</span>  → ✓
+
+  <span class="cmt">// ③ 去重检查 (参数: uuid → Redis SETNX)</span>
+  <span class="fn">_redis</span>.<span class="fn">setnxWithExpire</span>(<span class="s">"msg:"</span> + <span class="param">uuid</span>, <span class="val">3600</span>)  → <span class="val">true</span> (首次)
+
+  <span class="cmt">// ④ 更新发送者活跃时间 (参数: fromid, time)</span>
+  <span class="param">_lastActiveMap</span>[<span class="param">fromid</span>] = <span class="param">time</span>
+
+  <span class="cmt">// ⑤ 本机路由 (参数: toid → TCP连接)</span>
+  <span class="fn">shared_lock</span>(<span class="param">_connMutex</span>)
+  <span class="param">_userConnMap</span>.<span class="fn">find</span>(<span class="param">toid</span>) → <span class="val">TcpConnectionPtr</span>
+
+  <span class="sk">if</span> (命中) → <span class="param">it→second</span>→<span class="fn">send</span>(<span class="param">js</span>.<span class="fn">dump</span>())  <span class="cmt">// 参数: json字符串 → 目标用户</span>
+
+  <span class="sk">else</span> <span class="sk">if</span> (Redis在线) → <span class="fn">_redis</span>.<span class="fn">publish</span>(<span class="param">toid</span>, <span class="param">js</span>.<span class="fn">dump</span>())  <span class="cmt">// 参数: channel, msg → Redis</span>
+
+  <span class="sk">else</span> → <span class="fn">_offlineMsgModel</span>.<span class="fn">insert</span>(<span class="param">toid</span>, <span class="param">js</span>.<span class="fn">dump</span>())  <span class="cmt">// 参数: userid, json → MySQL</span>
+
+  <span class="cmt">// ⑥ 回复发送者 ACK (参数: conn 原路返回)</span>
+  <span class="param">conn</span>→<span class="fn">send</span>(<span class="param">ack</span>.<span class="fn">dump</span>())   <span class="cmt">// ack = {"msgid":13, "msg_uuid":"1_xxx", "status":"ok"}</span>
+
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+<span class="cmt">阶段5: 目标用户收到消息</span>
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+  目标用户的 <span class="fn">readTaskHandler</span>():
+    <span class="fn">recv</span>(<span class="param">clientfd</span>, <span class="param">buffer</span>, <span class="val">1024</span>, <span class="val">0</span>)  <span class="cmt">// 收到服务端推送</span>
+    <span class="param">msgtype</span> = <span class="val">6</span> (ONE_CHAT_MSG)
+    → 打印: <span class="val">"2026-05-13 16:30:00 [1]测试用户 said: 你好"</span>
+
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+<span class="cmt">阶段6: 发送者收到 ACK</span>
+<span class="cmt">═══════════════════════════════════════════════════════════════════════════════════</span>
+  发送者的 <span class="fn">readTaskHandler</span>():
+    <span class="fn">recv</span>(<span class="param">clientfd</span>, ...)
+    <span class="param">msgtype</span> = <span class="val">13</span> (MSG_ACK)
+    → <span class="sk">continue</span> (静默)
+</div>
+</div>
+
+<!-- ==================== 全部消息类型 ==================== -->
+<div class="layer">
+<div class="layer-label">▼ 全部 13 种消息类型 & 参数签名</div>
+<div class="node-row">
+  <div class="node" style="max-width:100%">
+    <div class="node-detail" style="font-family:monospace">
+<span class="cmt">// 所有 handler 签名统一: void handler(const TcpConnectionPtr& conn, json& js, Timestamp time)</span>
+<span class="cmt">// 通过 _msgHandlerMap[msgid] = bind(&ChatService::函数名, this, _1, _2, _3) 注册</span>
+────────────────────────────────────────────────────────────────────────────────────────────────
+msgid  <span class="n">1</span>  <span class="sk">LOGIN_MSG</span>        <span class="fn">login</span>        js{<span class="s">"id"</span>:int, <span class="s">"password"</span>:string}                  → <span class="fn">verifyPassword</span>() → <span class="fn">subscribe</span>() → 拉离线/好友/群组
+msgid  <span class="n">2</span>  <span class="sk">LOGIN_MSG_ACK</span>     -              response{<span class="s">"errno"</span>:0/1/2, <span class="s">"name"</span>, <span class="s">"friends"</span>, ...} → 客户端处理
+msgid  <span class="n">3</span>  <span class="sk">LOGINOUT_MSG</span>     <span class="fn">loginout</span>     js{<span class="s">"id"</span>:int}                                     → 清理连接 + Redis + MySQL
+msgid  <span class="n">4</span>  <span class="sk">REG_MSG</span>          <span class="fn">reg</span>           js{<span class="s">"name"</span>:string, <span class="s">"password"</span>:string}           → <span class="fn">hashPassword</span>() → INSERT
+msgid  <span class="n">5</span>  <span class="sk">REG_MSG_ACK</span>       -              response{<span class="s">"errno"</span>:0, <span class="s">"id"</span>:int}                    → 客户端打印
+msgid  <span class="n">6</span>  <span class="sk">ONE_CHAT_MSG</span>     <span class="fn">oneChat</span>       js{<span class="s">"id"</span>,<span class="s">"toid"</span>,<span class="s">"msg"</span>,<span class="s">"msg_uuid"</span>}            → 三级路由 + ACK
+msgid  <span class="n">7</span>  <span class="sk">ADD_FRIEND_MSG</span>   <span class="fn">addFriend</span>     js{<span class="s">"id"</span>:int, <span class="s">"friendid"</span>:int}                   → INSERT friend
+msgid  <span class="n">8</span>  <span class="sk">CREATE_GROUP_MSG</span>  <span class="fn">createGroup</span>   js{<span class="s">"id"</span>:int, <span class="s">"groupname"</span>, <span class="s">"groupdesc"</span>}        → INSERT allgroup + groupuser
+msgid  <span class="n">9</span>  <span class="sk">ADD_GROUP_MSG</span>     <span class="fn">addGroup</span>      js{<span class="s">"id"</span>:int, <span class="s">"groupid"</span>:int}                    → INSERT groupuser
+msgid <span class="n">10</span>  <span class="sk">GROUP_CHAT_MSG</span>    <span class="fn">groupChat</span>     js{<span class="s">"id"</span>,<span class="s">"groupid"</span>,<span class="s">"msg"</span>,<span class="s">"msg_uuid"</span>}          → 查成员→遍历三级路由→ACK
+msgid <span class="n">11</span>  <span class="sk">PING_MSG</span>          <span class="fn">ping</span>          js{<span class="s">"id"</span>:int}                                     → 更新活跃时间→回PONG
+msgid <span class="n">12</span>  <span class="sk">PONG_MSG</span>          -              response{}                                          → 客户端静默
+msgid <span class="n">13</span>  <span class="sk">MSG_ACK</span>           -              response{<span class="s">"msg_uuid"</span>, <span class="s">"status"</span>:<span class="s">"ok"</span>|<span class="s">"offline"</span>|<span class="s">"duplicate"</span>} → 客户端静默
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ==================== 点击节点弹出对应代码 ==================== -->
+<div id="codeModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);z-index:200;padding:40px;overflow-y:auto" onclick="document.getElementById('codeModal').style.display='none'">
+  <div style="max-width:900px;margin:0 auto;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span style="color:#58a6ff;font-weight:bold;font-size:14px" id="codeTitle"></span>
+      <button onclick="document.getElementById('codeModal').style.display='none'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ 关闭</button>
+    </div>
+    <pre id="codeContent" style="font-size:12px;font-family:monospace;color:#a5d6ff;line-height:1.6;white-space:pre-wrap"></pre>
+  </div>
+</div>
+
+</div>
+
+<script>
+const codeSnippets = {
+  client_main: {
+    title: 'src/client/main.cpp — main() 主线程',
+    code: `int main(int argc, char **argv)
+{
+    char *ip = argv[1];
+    int port = atoi(argv[2]);
+    // 端口校验
+    if (port <= 0 || port > 65535) { ... exit(-1); }
+
+    int clientfd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in server;
+    memset(&server, 0, sizeof(sockaddr_in));
+    server.sin_family = AF_INET;
+    server.sin_port = htons(port);
+    server.sin_addr.s_addr = inet_addr(ip);
+
+    connect(clientfd, (sockaddr*)&server, sizeof(sockaddr_in));
+    sem_init(&rwsem, 0, 0);  // 信号量初始值0
+
+    // 启动接收子线程
+    std::thread readTask(readTaskHandler, clientfd);
+    readTask.detach();
+
+    // 主线程循环: 显示菜单 → 接收输入 → send
+    for (;;) {
+        cin >> choice;
+        switch (choice) {
+        case 1: // 登录 → 构造 JSON {msgid:1, id, password} → send → sem_wait
+        case 2: // 注册 → 构造 JSON {msgid:4, name, password} → send → sem_wait
+        case 3: // 退出 → close(clientfd)
+        }
+    }
+}`
+  },
+  client_json: {
+    title: 'src/client/main.cpp — 构造 JSON 并发送',
+    code: `// 以 chat 命令为例
+void chat(int clientfd, string str)
+{
+    int friendid = atoi(str.substr(0, idx).c_str());  // "2"
+    string message = str.substr(idx+1);                // "你好"
+
+    json js;
+    js["msgid"]    = ONE_CHAT_MSG;      // 6
+    js["id"]       = g_currentUser.getId();  // 1
+    js["name"]     = g_currentUser.getName();// "测试用户"
+    js["toid"]     = friendid;          // 2
+    js["msg"]      = message;           // "你好"
+    js["time"]     = getCurrentTime();
+    js["msg_uuid"] = to_string(g_currentUser.getId()) + "_" + to_string(time(nullptr));
+
+    string buffer = js.dump();   // JSON对象 → 字符串
+    send(clientfd, buffer.c_str(), strlen(buffer.c_str())+1, 0);
+    //    管道      数据           长度                   标志
+}`
+  },
+  client_read: {
+    title: 'src/client/main.cpp — readTaskHandler() 接收线程',
+    code: `void readTaskHandler(int clientfd)
+{
+    for (;;) {
+        char buffer[1024] = {0};
+        int len = recv(clientfd, buffer, 1024, 0);  // 阻塞等待
+        if (-1 == len || 0 == len) { close(clientfd); exit(-1); }
+
+        json js = json::parse(buffer);
+        int msgtype = js["msgid"].get<int>();
+
+        if (ONE_CHAT_MSG == msgtype)      // 6 → 打印聊天消息
+        if (GROUP_CHAT_MSG == msgtype)    // 10→ 打印群消息
+        if (LOGIN_MSG_ACK == msgtype)     // 2 → doLoginResponse + sem_post
+        if (REG_MSG_ACK == msgtype)       // 5 → doRegResponse + sem_post
+        if (PONG_MSG == msgtype)          // 12→ 心跳静默 continue
+        if (MSG_ACK == msgtype)           // 13→ ACK静默 continue
+    }
+}`
+  },
+  server_init: {
+    title: 'src/server/chatserver.cpp — ChatServer 构造函数',
+    code: `ChatServer::ChatServer(EventLoop *loop, const InetAddress &listenAddr, const string &nameArg)
+    : _server(loop, listenAddr, nameArg), _loop(loop)
+{
+    // 注册连接回调: Muduo 检测到连接断开时调用
+    _server.setConnectionCallback(
+        std::bind(&ChatServer::onConnection, this, _1));
+
+    // 注册消息回调: Muduo 收到数据时调用
+    _server.setMessageCallback(
+        std::bind(&ChatServer::onMessage, this, _1, _2, _3));
+
+    _server.setThreadNum(4);  // 1 main reactor + 3 sub reactor
+}`
+  },
+  server_onmsg: {
+    title: 'src/server/chatserver.cpp — onMessage() 网络层入口',
+    code: `void ChatServer::onMessage(const TcpConnectionPtr &conn, Buffer *buffer, Timestamp time)
+{
+    string buf = buffer->retrieveAllAsString();       // 取原始字符串
+    json js = json::parse(buf);                       // JSON 反序列化
+
+    // 根据 msgid 查表找到处理函数 — 网络层与业务层完全解耦的关键
+    auto msgHandler = ChatService::instance()->getHandler(
+        js["msgid"].get<int>());    // msgid=1→login, 6→oneChat ...
+
+    msgHandler(conn, js, time);     // 调用业务函数, 三个参数原样传递
+}`
+  },
+  msgmap: {
+    title: 'src/server/chatservice.cpp — _msgHandlerMap 构造函数注册',
+    code: `ChatService::ChatService()
+{
+    // 策略模式: msgid → handler 映射表
+    _msgHandlerMap.insert({LOGIN_MSG,
+        std::bind(&ChatService::login, this, _1, _2, _3)});
+    _msgHandlerMap.insert({REG_MSG,
+        std::bind(&ChatService::reg, this, _1, _2, _3)});
+    _msgHandlerMap.insert({ONE_CHAT_MSG,
+        std::bind(&ChatService::oneChat, this, _1, _2, _3)});
+    _msgHandlerMap.insert({ADD_FRIEND_MSG,
+        std::bind(&ChatService::addFriend, this, _1, _2, _3)});
+    _msgHandlerMap.insert({CREATE_GROUP_MSG,
+        std::bind(&ChatService::createGroup, this, _1, _2, _3)});
+    _msgHandlerMap.insert({ADD_GROUP_MSG,
+        std::bind(&ChatService::addGroup, this, _1, _2, _3)});
+    _msgHandlerMap.insert({GROUP_CHAT_MSG,
+        std::bind(&ChatService::groupChat, this, _1, _2, _3)});
+    _msgHandlerMap.insert({PING_MSG,
+        std::bind(&ChatService::ping, this, _1, _2, _3)});
+
+    // 连接 Redis, 设置跨服消息回调
+    if (_redis.connect())
+        _redis.init_notify_handler(
+            std::bind(&ChatService::handleRedisSubscribeMessage, this, _1, _2));
+}
+
+// 查找: O(1)
+MsgHandler ChatService::getHandler(int msgid) {
+    auto it = _msgHandlerMap.find(msgid);
+    if (it == _msgHandlerMap.end())
+        return [=](conn,js,time){ LOG_ERROR << "unknown msgid:" << msgid; };
+    return _msgHandlerMap[msgid];
+}`
+  },
+  onechat: {
+    title: 'src/server/chatservice.cpp — oneChat() 一对一聊天',
+    code: `void ChatService::oneChat(const TcpConnectionPtr &conn, json &js, Timestamp time)
+{
+    int toid = js["toid"].get<int>();
+    string msg = js.value("msg", "");
+    if (toid <= 0 || !isValidMessage(msg)) return;   // 校验
+
+    // 去重: msg_uuid → Redis SETNX
+    string msgUuid = js.value("msg_uuid", "");
+    if (!msgUuid.empty() && !_redis.setnxWithExpire("msg:"+msgUuid, 3600)) {
+        conn->send(ack_duplicate);  // 重复, 只回ACK
+        return;
+    }
+
+    int fromid = js["id"].get<int>();
+    { unique_lock<shared_mutex> lock(_connMutex);
+      _lastActiveMap[fromid] = time; }  // 更新心跳
+
+    // 三级路由:
+    { shared_lock<shared_mutex> lock(_connMutex);       // ①本机在线
+      auto it = _userConnMap.find(toid);
+      if (it != _userConnMap.end()) {
+          it->second->send(js.dump());  // 直接推送
+          conn->send(ack_ok); return;
+    }}
+    string toState = _redis.getUserState(toid);          // ②查Redis缓存
+    if (toState.empty()) {                               // ③回源MySQL
+        User user = _userModel.query(toid);
+        toState = user.getState();
+        if (toState == "online") _redis.setUserState(toid, "online");
+    }
+    if (toState == "online")
+        _redis.publish(toid, js.dump());  // 跨服发布
+    else
+        _offlineMsgModel.insert(toid, js.dump());  // 离线存储
+    conn->send(ack);  // 回复ACK
+}`
+  },
+  db: {
+    title: 'src/server/db/* — MySQL 封装 + 连接池',
+    code: `// ===== ConnectionPool =====
+class ConnectionPool {  // 单例
+    queue<MYSQL*> _pool;
+    mutex _mutex;
+    condition_variable _cv;
+
+    void init(host, port, user, pwd, db, poolSize=8) {
+        for (int i=0; i<poolSize; i++)
+            _pool.push(createConnection());  // 预建连接
+    }
+    MYSQL* acquire() {  // 阻塞获取
+        unique_lock lock(_mutex);
+        _cv.wait(lock, [this]{return !_pool.empty();});
+        MYSQL* conn = _pool.front(); _pool.pop();
+        return conn;
+    }
+    void release(MYSQL* conn) {  // 归还
+        lock_guard lock(_mutex);
+        _pool.push(conn); _cv.notify_one();
+    }
+};
+
+// ===== MySQL 类 =====
+class MySQL {
+    MYSQL* _conn;
+    MySQL() : _conn(nullptr) {}
+    ~MySQL() { if (_conn) ConnectionPool::instance()->release(_conn); }  // RAII
+    bool connect() { _conn = ConnectionPool::instance()->acquire(); return _conn; }
+    string escape(const string& str) { mysql_real_escape_string(_conn, ...); }
+    MYSQL_RES* query(string sql) { mysql_query(_conn, sql.c_str()); ... }
+    bool update(string sql) { ... }
+};`
+  },
+  model: {
+    title: 'src/server/model/* — Model 层示例',
+    code: `// UserModel::insert — 注册时调用
+bool UserModel::insert(User &user)
+{
+    // 1. 密码哈希
+    string hashedPwd = hashPassword(user.getPwd());  // PBKDF2 → 97字符
+
+    // 2. 从连接池获取连接
+    MySQL mysql;
+    if (mysql.connect()) {
+        // 3. 转义防注入 + snprintf 防溢出
+        char sql[1024] = {0};
+        snprintf(sql, sizeof(sql),
+            "insert into user(name,password,state) values('%s','%s','%s')",
+            mysql.escape(user.getName()).c_str(),
+            hashedPwd.c_str(),
+            mysql.escape(user.getState()).c_str());
+
+        // 4. 执行
+        if (mysql.update(sql)) {
+            user.setId(mysql_insert_id(mysql.getConnection()));
+            return true;
+        }
+    }
+    return false;
+}  // mysql 析构 → ConnectionPool::release() 归还连接`
+  },
+  password: {
+    title: 'src/server/password_utils.cpp — PBKDF2 密码哈希',
+    code: `string hashPassword(const string &password)
+{
+    unsigned char salt[16], key[32];
+    RAND_bytes(salt, 16);              // OpenSSL 随机盐
+    PKCS5_PBKDF2_HMAC(
+        password.c_str(), password.length(),
+        salt, 16,                       // 16字节盐
+        100000,                          // 10万次迭代
+        EVP_sha256(),                    // SHA-256
+        32, key);                        // 32字节输出
+    return toHex(salt, 16) + ":" + toHex(key, 32);  // "hex盐:hex哈希" = 97字符
+}
+
+bool verifyPassword(const string &password, const string &stored_hash)
+{
+    // 从 stored_hash 提取 salt 和 expected_key
+    // 对输入密码做相同的 PBKDF2 派生
+    // CRYPTO_memcmp 常量时间比较 ← 防时序攻击
+}`
+  },
+  redis_pub: {
+    title: 'src/server/redis/redis.cpp — Pub/Sub 消息总线',
+    code: `// 连接: 两个独立 redisContext + 一个独立订阅线程
+bool Redis::connect()
+{
+    _publish_context  = redisConnect("127.0.0.1", 6379);
+    _subcribe_context = redisConnect("127.0.0.1", 6379);
+    // 独立线程阻塞监听订阅消息
+    thread t([&](){ observer_channel_message(); });
+    t.detach();
+}
+void Redis::observer_channel_message() {
+    redisReply *reply = nullptr;
+    while (REDIS_OK == redisGetReply(_subcribe_context, (void**)&reply)) {
+        // 收到消息 → 回调业务层
+        _notify_message_handler(
+            atoi(reply->element[1]->str),   // userid → channel号
+            reply->element[2]->str);        // 消息内容
+        freeReplyObject(reply);
+    }
+}
+// publish: 带 mutex 保护 (多 muduo 线程会并发调用)
+bool Redis::publish(int channel, string message) {
+    lock_guard<mutex> lock(_ctxMutex);
+    redisReply *reply = (redisReply*)redisCommand(
+        _publish_context, "PUBLISH %d %s", channel, message.c_str());
+    ... freeReplyObject(reply);
+}`
+  },
+  redis_state: {
+    title: 'src/server/redis/redis.cpp — K-V 状态缓存',
+    code: `void Redis::setUserState(int userid, const string &state) {
+    lock_guard<mutex> lock(_ctxMutex);
+    redisReply *reply = (redisReply*)redisCommand(
+        _publish_context, "SET user:%d:state %s", userid, state.c_str());
+    if (reply) freeReplyObject(reply);
+}
+string Redis::getUserState(int userid) {
+    lock_guard<mutex> lock(_ctxMutex);
+    redisReply *reply = (redisReply*)redisCommand(
+        _publish_context, "GET user:%d:state", userid);
+    string state;
+    if (reply && reply->type == REDIS_REPLY_STRING && reply->str)
+        state = reply->str;
+    if (reply) freeReplyObject(reply);
+    return state;
+}
+void Redis::delUserState(int userid) {
+    lock_guard<mutex> lock(_ctxMutex);
+    redisReply *reply = (redisReply*)redisCommand(
+        _publish_context, "DEL user:%d:state", userid);
+    if (reply) freeReplyObject(reply);
+}`
+  },
+  redis_dedup: {
+    title: 'src/server/redis/redis.cpp — SETNX 消息去重',
+    code: `bool Redis::setnxWithExpire(const string &key, int expireSeconds) {
+    lock_guard<mutex> lock(_ctxMutex);
+    redisReply *reply = (redisReply*)redisCommand(
+        _publish_context,
+        "SET %s 1 NX EX %d", key.c_str(), expireSeconds);
+    if (reply == nullptr) return false;
+    // NX = 不存在才设置 → 首次返回OK, 重复返回nil
+    bool isNew = (reply->type == REDIS_REPLY_STATUS
+                  && string(reply->str) == "OK");
+    freeReplyObject(reply);
+    return isNew;
+}`
+  }
+};
+
+function showCode(key) {
+    const s = codeSnippets[key];
+    if (!s) return;
+    document.getElementById('codeTitle').textContent = s.title;
+    document.getElementById('codeContent').textContent = s.code;
+    document.getElementById('codeModal').style.display = 'block';
+}
+
+// ESC 关闭弹窗
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.getElementById('codeModal').style.display = 'none';
+});
+</script>
+
+</body>
+</html>

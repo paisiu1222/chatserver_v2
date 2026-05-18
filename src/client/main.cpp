@@ -37,7 +37,6 @@ sem_t rwsem;
 // 记录登录状态
 atomic_bool g_isLoginSuccess{false};
 
-
 // 接收线程
 void readTaskHandler(int clientfd);
 // 获取系统时间（聊天信息需要添加时间信息）
@@ -60,6 +59,19 @@ int main(int argc, char **argv)
     char *ip = argv[1];
     int port = atoi(argv[2]);
 
+    /*
+    1. 端口传了非数字
+    ./bin/ChatServer 127.0.0.1 abc
+    atoi("abc") 返回 0，程序去监听端口 0（系统随机分配），不会报错但行为不符合预期。
+
+    2. IP 格式错误
+    ./bin/ChatServer 999.999.999.999 6000
+    Muduo 的 InetAddress 构造时会尝试解析，可能抛异常或构造出无效地址，程序直接崩。
+
+    3. 端口越界
+    ./bin/ChatServer 127.0.0.1 99999
+    端口超过 65535，bind 失败，程序启动不了。
+    */
     // 端口校验
     if (port <= 0 || port > 65535)
     {
@@ -139,8 +151,8 @@ int main(int argc, char **argv)
             }
 
             sem_wait(&rwsem); // 等待信号量，由子线程处理完登录的响应消息后，通知这里
-                
-            if (g_isLoginSuccess) 
+
+            if (g_isLoginSuccess)
             {
                 // 进入聊天主菜单页面
                 isMainMenuRunning = true;
@@ -168,7 +180,7 @@ int main(int argc, char **argv)
             {
                 cerr << "send reg msg error:" << request << endl;
             }
-            
+
             sem_wait(&rwsem); // 等待信号量，子线程处理完注册消息会通知
         }
         break;
@@ -195,7 +207,7 @@ void doRegResponse(json &responsejs)
     else // 注册成功
     {
         cout << "name register success, userid is " << responsejs["id"]
-                << ", do not forget it!" << endl;
+             << ", do not forget it!" << endl;
     }
 }
 
@@ -276,12 +288,12 @@ void doLoginResponse(json &responsejs)
                 if (ONE_CHAT_MSG == js["msgid"].get<int>())
                 {
                     cout << js["time"].get<string>() << " [" << js["id"] << "]" << js["name"].get<string>()
-                            << " said: " << js["msg"].get<string>() << endl;
+                         << " said: " << js["msg"].get<string>() << endl;
                 }
                 else
                 {
                     cout << "群消息[" << js["groupid"] << "]:" << js["time"].get<string>() << " [" << js["id"] << "]" << js["name"].get<string>()
-                            << " said: " << js["msg"].get<string>() << endl;
+                         << " said: " << js["msg"].get<string>() << endl;
                 }
             }
         }
@@ -296,7 +308,7 @@ void readTaskHandler(int clientfd)
     for (;;)
     {
         char buffer[1024] = {0};
-        int len = recv(clientfd, buffer, 1024, 0);  // 阻塞了
+        int len = recv(clientfd, buffer, 1024, 0); // 阻塞了
         if (-1 == len || 0 == len)
         {
             close(clientfd);
@@ -330,7 +342,7 @@ void readTaskHandler(int clientfd)
         if (REG_MSG_ACK == msgtype)
         {
             doRegResponse(js);
-            sem_post(&rwsem);    // 通知主线程，注册结果处理完成
+            sem_post(&rwsem); // 通知主线程，注册结果处理完成
             continue;
         }
 
@@ -586,7 +598,7 @@ void loginout(int clientfd, string)
     else
     {
         isMainMenuRunning = false;
-    }   
+    }
 }
 
 // 获取系统时间（聊天信息需要添加时间信息）
